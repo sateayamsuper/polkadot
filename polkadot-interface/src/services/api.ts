@@ -1,11 +1,11 @@
-// API Service for Polkadot connection
+// src/services/api.ts
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import { web3Accounts, web3Enable } from '@polkadot/extension-dapp';
 
 class ApiService {
   private static instance: ApiService;
   private api: ApiPromise | null = null;
-  private isConnected: boolean = false;
+  private isConnected = false;
   private connectionPromise: Promise<void> | null = null;
   private accounts: any[] = [];
 
@@ -18,68 +18,57 @@ class ApiService {
     return ApiService.instance;
   }
 
-  public async connect(endpoint: string): Promise<void> {
+  /** Connect (defaults to ws://127.0.0.1:9944) */
+  public async connect(endpoint = 'ws://127.0.0.1:9944'): Promise<void> {
     if (this.connectionPromise) {
       return this.connectionPromise;
     }
-
-    this.connectionPromise = new Promise(async (resolve, reject) => {
+    this.connectionPromise = (async () => {
       try {
         const provider = new WsProvider(endpoint);
         this.api = await ApiPromise.create({ provider });
+        await this.api.isReady;
 
-        // Get chain information
-        const [chain, nodeName, nodeVersion] = await Promise.all([
+        const [chain, name, version] = await Promise.all([
           this.api.rpc.system.chain(),
           this.api.rpc.system.name(),
           this.api.rpc.system.version()
         ]);
-        
-        console.log(`Connected to ${chain} using ${nodeName} v${nodeVersion}`);
+        console.log(`Connected to ${chain} via ${name} v${version}`);
         this.isConnected = true;
-        
-        // Enable wallet extension
-        const extensions = await web3Enable('Polkadot Interface');
-        if (extensions.length === 0) {
-          console.warn('No extension found. Please install PolkadotJS extension.');
-        } else {
-          // Get accounts
-          this.accounts = await web3Accounts();
-          console.log(`Found ${this.accounts.length} accounts`);
-        }
-        
-        resolve();
-      } catch (error) {
-        console.error('Connection error:', error);
-        this.isConnected = false;
-        this.api = null;
-        this.connectionPromise = null;
-        reject(error);
-      }
-    });
 
+        const exts = await web3Enable('Polkadot Interface');
+        if (exts.length) {
+          this.accounts = await web3Accounts();
+          console.log(`Injected ${this.accounts.length} account(s)`);
+        } else {
+          console.warn('No Polkadot extension found');
+        }
+      } catch (e) {
+        this.api = null;
+        this.isConnected = false;
+        this.connectionPromise = null;
+        throw e;
+      }
+    })();
     return this.connectionPromise;
   }
 
-  // Get API instance
   public getApi(): ApiPromise {
     if (!this.api) {
-      throw new Error('API not connected. Call connect() first.');
+      throw new Error('API not connected—call connect() first');
     }
     return this.api;
   }
 
-  // Check if API is connected
   public isApiConnected(): boolean {
-    return this.isConnected && !!this.api;
+    return this.isConnected;
   }
 
-  // Get accounts from extension
   public getAccounts(): any[] {
     return this.accounts;
   }
 
-  // Disconnect API
   public disconnect(): void {
     if (this.api) {
       this.api.disconnect();
