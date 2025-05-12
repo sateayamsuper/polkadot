@@ -1,10 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import Select, { GroupBase, SingleValue } from 'react-select';
 import { JSONTree } from 'react-json-tree';
 import ApiService from '../services/api';
-
-interface Option { value: string; label: string }
-type OptionGroup = GroupBase<Option>;
 
 const ChainState: React.FC = () => {
   const [modules, setModules] = useState<string[]>([]);
@@ -13,6 +9,7 @@ const ChainState: React.FC = () => {
   const [selectedMethod, setSelectedMethod] = useState<string>('');
   const [params, setParams] = useState<string[]>([]);
   const [inputParams, setInputParams] = useState<string[]>([]);
+  const [blockHash, setBlockHash] = useState<string>('');
   const [result, setResult] = useState<any>(null);
 
   useEffect(() => {
@@ -42,20 +39,20 @@ const ChainState: React.FC = () => {
     setResult(null);
   }, [selectedModule, selectedMethod]);
 
-  const handleModuleSelect = (opt: SingleValue<Option>) => {
-    if (opt) setSelectedModule(opt.value);
-  };
-  const handleMethodSelect = (opt: SingleValue<Option>) => {
-    if (opt) setSelectedMethod(opt.value);
-  };
   const handleParamChange = (i: number, v: string) => {
-    const copy = [...inputParams]; copy[i] = v; setInputParams(copy);
+    const copy = [...inputParams];
+    copy[i] = v;
+    setInputParams(copy);
   };
 
   const executeQuery = async () => {
     const api = ApiService.getInstance().getApi();
     try {
-      const q = (api.query[selectedModule][selectedMethod] as any);
+      let q = (api.query[selectedModule][selectedMethod] as any);
+      if (blockHash) {
+        q = q.at(blockHash);
+      }
+
       const res = params.length
         ? await q(...inputParams)
         : await q();
@@ -65,40 +62,50 @@ const ChainState: React.FC = () => {
     }
   };
 
-  // group modules by prefix before first dot
-  const moduleGroups: OptionGroup[] = Object.entries(
-    modules.reduce<Record<string, Option[]>>((acc, m) => {
-      const [grp] = m.split('.');
-      (acc[grp] ||= []).push({ value: m, label: m });
-      return acc;
-    }, {})
-  ).map(([label, options]) => ({ label, options }));
-
-  const methodOptions: Option[] = methods.map(m => ({ value: m, label: m }));
-
   return (
     <div className="bg-white shadow sm:rounded-lg mb-6 p-6">
       <h3 className="text-lg font-medium text-gray-900 mb-4">Chain State Query</h3>
 
       <div className="mb-4">
-        <Select<Option, false, OptionGroup>
-          options={moduleGroups}
-          isSearchable
-          placeholder="Search modules..."
-          onChange={handleModuleSelect}
-          value={selectedModule ? { value: selectedModule, label: selectedModule } : null}
+        <label className="block text-sm font-medium text-gray-700">
+          Block hash to query at
+        </label>
+        <input
+          type="text"
+          value={blockHash}
+          onChange={e => setBlockHash(e.target.value)}
+          placeholder="0x1234abcd…"
+          className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
         />
+      </div>
+
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1">Module</label>
+        <select
+          value={selectedModule}
+          onChange={e => setSelectedModule(e.target.value)}
+          className="block w-full border-gray-300 rounded-md p-2"
+        >
+          <option value="">Select a module</option>
+          {modules.map(m => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
       </div>
 
       {selectedModule && (
         <div className="mb-4">
-          <Select<Option, false>
-            options={methodOptions}
-            isSearchable
-            placeholder="Search methods..."
-            onChange={handleMethodSelect}
-            value={selectedMethod ? { value: selectedMethod, label: selectedMethod } : null}
-          />
+          <label className="block text-sm font-medium text-gray-700 mb-1">Method</label>
+          <select
+            value={selectedMethod}
+            onChange={e => setSelectedMethod(e.target.value)}
+            className="block w-full border-gray-300 rounded-md p-2"
+          >
+            <option value="">Select a method</option>
+            {methods.map(m => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
         </div>
       )}
 
@@ -109,7 +116,7 @@ const ChainState: React.FC = () => {
             type="text"
             value={inputParams[i]}
             onChange={e => handleParamChange(i, e.target.value)}
-            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
             placeholder={p}
           />
         </div>

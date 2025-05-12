@@ -30,11 +30,11 @@ const Extrinsics: React.FC = () => {
 
         const modNames = Object.keys(api.tx).sort();
         setModules(modNames);
-        setSelectedModule(modNames[0] || '');
+        setSelectedModule(''); // start with placeholder
 
         const accs = svc.getAccounts();
         setAccounts(accs);
-        setSelectedAccount(accs[0]?.address || '');
+        setSelectedAccount(''); // placeholder
       } catch (e: any) {
         console.error(e);
         setError('Failed to load extrinsics modules/accounts');
@@ -48,7 +48,7 @@ const Extrinsics: React.FC = () => {
     const api = ApiService.getInstance().getApi();
     const methNames = Object.keys(api.tx[selectedModule]).sort();
     setMethods(methNames);
-    setSelectedMethod(methNames[0] || '');
+    setSelectedMethod('');  // reset to placeholder
     setParams([]);
     setParamValues([]);
     setStatus('');
@@ -60,10 +60,20 @@ const Extrinsics: React.FC = () => {
     if (!selectedModule || !selectedMethod) return;
     const api = ApiService.getInstance().getApi();
     const txFn = (api.tx[selectedModule][selectedMethod] as any);
-    const defs: ParamDef[] = txFn.meta?.args?.map((a: any) => ({
+
+    // metadata args
+    let defs: ParamDef[] = txFn.meta?.args?.map((a: any) => ({
       name: a.name.toString(),
       type: a.type.toString()
     })) || [];
+
+    // fallback if metadata missing but fn.length > 0
+    if (defs.length === 0 && typeof txFn.length === 'number' && txFn.length > 0) {
+      defs = Array.from({ length: txFn.length }, (_, i) => ({
+        name: `param${i}`, type: 'unknown'
+      }));
+    }
+
     setParams(defs);
     setParamValues(new Array(defs.length).fill(''));
     setStatus('');
@@ -87,17 +97,16 @@ const Extrinsics: React.FC = () => {
       const api = svc.getApi();
 
       const tx = (api.tx[selectedModule][selectedMethod] as any)(
-        ...paramValues.map(v => v.trim()).filter((_, i) => params[i])
+        ...paramValues.map(v => v.trim())
       );
 
       setStatus('Requesting signature…');
       const injector = await web3FromAddress(selectedAccount);
 
-      const unsub = await tx.signAndSend(
+      await tx.signAndSend(
         selectedAccount,
         { signer: injector.signer },
         (result: any) => {
-          // Destructure inside with explicit any
           const s = result.status;
           const events = result.events;
 
@@ -110,46 +119,44 @@ const Extrinsics: React.FC = () => {
               }
               if (api.events.system.ExtrinsicFailed.is(event)) {
                 const [dispatchError] = event.data;
-                let errMsg = dispatchError.toString();
+                let msg = dispatchError.toString();
                 if ((dispatchError as any).isModule) {
                   const decoded = api.registry.findMetaError((dispatchError as any).asModule);
-                  errMsg = `${decoded.section}.${decoded.name}`;
+                  msg = `${decoded.section}.${decoded.name}`;
                 }
                 setStatus('✖ Extrinsic failed');
-                setError(errMsg);
+                setError(msg);
               }
             });
-
-            unsub();
           } else if (s.isFinalized) {
             setStatus(`Finalized at ${s.asFinalized.toString()}`);
           }
         }
       );
-    } catch (e: unknown) {
+    } catch (e: any) {
       console.error(e);
-      const err = e as any;
-      setError(err.message || 'Submission failed');
+      setError(e.message || 'Submission failed');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="bg-white shadow rounded-lg p-6">
-      <h3 className="text-lg font-medium mb-4">Submit Extrinsics</h3>
+    <div className="bg-white shadow sm:rounded-lg p-6 mb-6">
+      <h3 className="text-lg font-medium mb-4">Submit Extrinsic</h3>
 
       {/* Account */}
       <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700">Account</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Account</label>
         <select
+          className="block w-full border-gray-300 rounded-md p-2"
           value={selectedAccount}
           onChange={e => setSelectedAccount(e.target.value)}
-          className="mt-1 block w-full border-gray-300 rounded-md"
         >
+          <option value="">Select account...</option>
           {accounts.map(a => (
             <option key={a.address} value={a.address}>
-              {a.name || a.address.slice(0, 6)}…{a.address.slice(-6)}
+              {a.name || a.address.slice(0,6)}…{a.address.slice(-6)}
             </option>
           ))}
         </select>
@@ -158,22 +165,25 @@ const Extrinsics: React.FC = () => {
       {/* Module & Method */}
       <div className="grid grid-cols-2 gap-4 mb-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700">Module</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Module</label>
           <select
+            className="block w-full border-gray-300 rounded-md p-2"
             value={selectedModule}
             onChange={e => setSelectedModule(e.target.value)}
-            className="mt-1 block w-full border-gray-300 rounded-md"
           >
+            <option value="">Select module...</option>
             {modules.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">Method</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Method</label>
           <select
+            className="block w-full border-gray-300 rounded-md p-2"
             value={selectedMethod}
             onChange={e => setSelectedMethod(e.target.value)}
-            className="mt-1 block w-full border-gray-300 rounded-md"
+            disabled={!selectedModule}
           >
+            <option value="">Select method...</option>
             {methods.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>
@@ -189,22 +199,24 @@ const Extrinsics: React.FC = () => {
             type="text"
             value={paramValues[i]}
             onChange={e => onParamChange(i, e.target.value)}
-            className="mt-1 block w-full border-gray-300 rounded-md"
             placeholder={p.type}
+            className="mt-1 block w-full border-gray-300 rounded-md p-2"
           />
         </div>
       ))}
 
+      {/* Submit */}
       <button
         onClick={submit}
-        disabled={loading || !selectedAccount}
-        className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+        disabled={loading || !selectedAccount || !selectedModule || !selectedMethod}
+        className="mt-2 w-full px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
       >
         {loading ? 'Submitting…' : 'Submit'}
       </button>
 
-      {status && <p className="mt-2 text-sm text-gray-800">{status}</p>}
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {/* Status & Error */}
+      {status && <p className="mt-4 text-sm text-gray-800">{status}</p>}
+      {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
     </div>
   );
 };
